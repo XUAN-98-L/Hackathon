@@ -9,7 +9,7 @@ option_list <- list(
               type = "character", default = "Result/00_Data_Preprocessing_Readable_Vietnam_Childhood_survey_Rounds/data_readable.csv",
               help = "input file name"
   ), make_option(c("--output", "-o"),
-                 type = "character", default = "Result/01_Event_table",
+                 type = "character", default = "Result/02_Event_table",
                  help = "output directory path."
   ), make_option(c("--seed", "-s"),
               type = "integer", default = 9,
@@ -20,6 +20,10 @@ option_list <- list(
   ),make_option(c("--meta_data", "-m"),
               type = "character", default = "Hackathon_2026_DT_LLM/Young Lives Data/Childhood survey_Rounds 1-5_Constructed files_2002-2016/UKDA-7483-tab/tab/vietnam_constructed.tab",
               help = "info for meta_data column"
+  ),
+  make_option(c("--constants", "-c"),
+              type = "character", default = "Result/01_Data_Preparation_constants",
+              help = "constants file path"
   )
 )
 opt_parser <- OptionParser(option_list = option_list)
@@ -60,6 +64,14 @@ if (is.null(opt$meta_data)) {
 }else{
   meta_data <- opt$meta_data
 }
+
+if (is.null(opt$constants)) {
+  stop("Please provide the constants file name!")
+}else{
+  constants <- read.csv(file.path(opt$constants, "constants.csv"), header = TRUE, sep = ",")
+  constants_description <- read.csv(file.path(opt$constants, "constants_description.csv"), header = TRUE, sep = ",")
+}
+
 #=========================Main Function=========================================
 data_formatted = data %>% dplyr::select(childid, dint, everything()) %>% rename(patientid = childid, date = dint)
 
@@ -95,8 +107,8 @@ events_table <- events_long %>%
                                     event_name, 
                                     variable_label),
     event_category = NA_character_,  # Optional - can be populated later
-    meta_data = NA_character_,  # Optional - can be populated later
-    source = "events"  # Optional - default source
+    meta_data = meta_data,  # Optional - can be populated later
+    source = NA_character_  # Optional
   ) %>%
   # Select and reorder columns according to the schema
   dplyr::select(
@@ -116,10 +128,22 @@ if (!is.null(meta_data)) {
     mutate(meta_data = meta_data)
 }
 
-# if event_category is all na, remove the column
-if (all(is.na(events_table$event_category))) {
+# remove event_value that is in constants
+events_table <- events_table %>%
+  filter(!event_name %in% colnames(constants))
+
+# add event_category column
+events_table <- events_table %>%
+  mutate(event_category = ifelse(event_value %in% constants$value, constants$category, NA))
+
+# sort
+events_table <- events_table %>%
+  dplyr::select(patientid, date, event_descriptive_name,event_value, everything())
+
+# if any column in events_table is all na, remove the column
+if (any(apply(events_table, 2, function(x) all(is.na(x))))) {
   events_table <- events_table %>%
-    dplyr::select(-event_category)
+    dplyr::select(-which(apply(events_table, 2, function(x) all(is.na(x)))))
 }
 
 # Save the events table
